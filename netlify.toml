@@ -1,0 +1,9 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NITRO_PRESET = "netlify"
+  NODE_VERSION = "22"
+  VITE_AUTH_ENABLED = "true"
+  BETTER_AUTH_URL = "https://tinder-awards-claims-bonus.netlify.app"

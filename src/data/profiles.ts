@@ -1,0 +1,251 @@
+export type Gender = "woman" | "man";
+
+export type Profile = {
+  id: string;
+  name: string;
+  age: number;
+  gender: Gender;
+  job: string;
+  area: string;
+  km: number;
+  bio: string;
+  prompt: string;
+  answer: string;
+  interests: string[];
+  photo: string;
+  likesYou: boolean;
+  opener: string;
+  replies: string[];
+};
+
+export const PROFILES: Profile[] = [
+  {
+    id: "amina",
+    name: "Amina",
+    age: 27,
+    gender: "woman",
+    job: "Photographer",
+    area: "Kilimani",
+    km: 8,
+    bio: "I shoot 35mm after work and I will defend the mandazi at that stall on Ngong Road.",
+    prompt: "The best hour of the day",
+    answer: "Just after rain, when the light goes soft and the city smells like dust and chai.",
+    interests: ["Film", "Coffee", "Markets", "Walks"],
+    photo: "/profiles/amina.jpg",
+    likesYou: true,
+    opener: "If you're free this week, I know a window seat worth sitting in.",
+    replies: [
+      "Tell me the last thing you photographed, even if it was just your lunch.",
+      "Ngong Road, Saturday, before the light goes. I'm buying the mandazi.",
+      "I like how you write. Most people just say hey.",
+    ],
+  },
+  {
+    id: "brian",
+    name: "Brian",
+    age: 29,
+    gender: "man",
+    job: "Football coach",
+    area: "Ruiru",
+    km: 3,
+    bio: "Evenings are for five-a-side and whatever is on the stove. I make a serious pilau.",
+    prompt: "I'll know it's a good date if",
+    answer: "We lose track of time arguing about which matatu route is actually fastest.",
+    interests: ["Football", "Cooking", "Playlists"],
+    photo: "/profiles/brian.jpg",
+    likesYou: false,
+    opener: "If you're around Ruiru, I owe you pilau. That's a menu, not a line.",
+    replies: [
+      "Be honest. Can you actually cook, or do you just own spices?",
+      "There's a pitch behind the shops. Loser buys soda.",
+      "Send me a song and I'll tell you if you're dangerous.",
+    ],
+  },
+  {
+    id: "wanjiku",
+    name: "Wanjiku",
+    age: 26,
+    gender: "woman",
+    job: "Product designer",
+    area: "Kiambu",
+    km: 12,
+    bio: "I design apps by day and talk to my plants like they pay rent. They don't.",
+    prompt: "A small joy",
+    answer: "Propagating a pothos and giving the baby to someone I like.",
+    interests: ["Plants", "Design", "Tea", "Sundays"],
+    photo: "/profiles/wanjiku.jpg",
+    likesYou: true,
+    opener: "Tell me the last plant you managed not to kill. I'll go first: a very patient snake plant.",
+    replies: [
+      "I have a spare cutting with your name on it. That's my version of forward.",
+      "Kiambu is quiet in the right way. Come walk the ridge if you like green.",
+      "Design question: what app do you wish someone would just fix?",
+    ],
+  },
+  {
+    id: "kevin",
+    name: "Kevin",
+    age: 31,
+    gender: "man",
+    job: "Product lead",
+    area: "Westlands",
+    km: 18,
+    bio: "I run before the traffic wakes up. Then I pretend I enjoy cold email.",
+    prompt: "Currently deciding",
+    answer: "Whether a second coffee is wisdom or a mistake.",
+    interests: ["Running", "Sushi", "Jazz"],
+    photo: "/profiles/kevin.jpg",
+    likesYou: false,
+    opener: "I have one good story about a morning run and a badly behaved dog. Interested?",
+    replies: [
+      "Westlands rooftop, one coffee, no laptops. I can do Thursday.",
+      "What's a hill you actually like running? I need new ones.",
+      "You seem calm. That's rare on this thing. I noticed.",
+    ],
+  },
+  {
+    id: "zuri",
+    name: "Zuri",
+    age: 24,
+    gender: "woman",
+    job: "Illustrator",
+    area: "Karen",
+    km: 22,
+    bio: "Sketchbook in every bag. I'll trade you a drawing for a street-food recommendation.",
+    prompt: "Unpopular opinion",
+    answer: "Galleries are better when you leave hungry and fix that immediately.",
+    interests: ["Art", "Vinyl", "Street food"],
+    photo: "/profiles/zuri.jpg",
+    likesYou: true,
+    opener: "Be honest. Gallery person, or street-food person who owns one nice shirt?",
+    replies: [
+      "I'll draw the thing you describe in one sentence. Go.",
+      "Karen is far until the fries are involved. Then it's a reasonable distance.",
+      "Come by the studio. It's messy in a way I'm proud of.",
+    ],
+  },
+  {
+    id: "otieno",
+    name: "Otieno",
+    age: 28,
+    gender: "man",
+    job: "Music producer",
+    area: "Kilimani",
+    km: 9,
+    bio: "I make beats in a room that is mostly cables. Looking for someone who talks after midnight.",
+    prompt: "On repeat",
+    answer: "A guitar loop I can't finish, and nyama choma I absolutely can.",
+    interests: ["Music", "Studios", "Night drives"],
+    photo: "/profiles/otieno.jpg",
+    likesYou: false,
+    opener: "Tell me what you're listening to. I'll pretend not to judge for at least a minute.",
+    replies: [
+      "Send a voice note of the last song that got you. I want the uncool answer.",
+      "Studio's open Sunday night if you want to hear something unfinished.",
+      "Midnight conversations are the only ones I trust. You in?",
+    ],
+  },
+  {
+    id: "faith",
+    name: "Faith",
+    age: 30,
+    gender: "woman",
+    job: "Literature teacher",
+    area: "Thika",
+    km: 28,
+    bio: "I teach literature and hike Ngong when the week gets loud. I annotate everything.",
+    prompt: "A green flag",
+    answer: "You return books, and you don't mock people for liking poetry.",
+    interests: ["Books", "Hiking", "Poetry"],
+    photo: "/profiles/faith.jpg",
+    likesYou: true,
+    opener: "I'm between essays. Say something interesting and I'll put the red pen down.",
+    replies: [
+      "What book did you finish even though it annoyed you? Those are the honest ones.",
+      "Ngong this weekend if the sky behaves. I pack the fruit.",
+      "You can borrow the poetry. I will notice if it comes back without notes.",
+    ],
+  },
+  {
+    id: "malik",
+    name: "Malik",
+    age: 27,
+    gender: "man",
+    job: "Community coach",
+    area: "Kasarani",
+    km: 14,
+    bio: "Community basketball, bad jokes, excellent chips masala. In that order.",
+    prompt: "First hangout",
+    answer: "A pickup game where neither of us pretends to be less competitive.",
+    interests: ["Basketball", "Jokes", "Chips"],
+    photo: "/profiles/malik.jpg",
+    likesYou: true,
+    opener: "Quick test: pineapple on pizza is irrelevant. Where do you stand on extra chilli?",
+    replies: [
+      "Court's free after six. I'll go easy. I will not go easy.",
+      "Chips masala from the place near the stage, then we walk it off. Deal?",
+      "Your move. I already used my best joke and I'm saving the rest.",
+    ],
+  },
+  {
+    id: "nyambura",
+    name: "Nyambura",
+    age: 25,
+    gender: "woman",
+    job: "Filmmaker",
+    area: "Limuru",
+    km: 24,
+    bio: "I grew up near the tea. Now I make short films and spoil my dog rotten.",
+    prompt: "Come over if",
+    answer: "You want mist, a blanket, and a movie we talk through anyway.",
+    interests: ["Film", "Dogs", "Hills"],
+    photo: "/profiles/nyambura.jpg",
+    likesYou: false,
+    opener: "The hills are loud with birds and quiet with everything else. You'd like it.",
+    replies: [
+      "What film did you watch too young and still quote? I need the reference.",
+      "The dog has already approved this conversation, for what it's worth.",
+      "Limuru when the mist sits low. I'll bring the blanket, you bring opinions.",
+    ],
+  },
+  {
+    id: "daniel",
+    name: "Daniel",
+    age: 32,
+    gender: "man",
+    job: "Chef",
+    area: "Lavington",
+    km: 11,
+    bio: "I cook for a living, so dates are never 'whatever you want.' I already have a plan.",
+    prompt: "The way to my attention",
+    answer: "Eat what I plate, then tell me the truth about the salt.",
+    interests: ["Cooking", "Markets", "Jazz"],
+    photo: "/profiles/daniel.jpg",
+    likesYou: false,
+    opener: "I already know where I'd take you. You just have to be hungry.",
+    replies: [
+      "Allergies, strong opinions, or a dish you pretend to like? I need the briefing.",
+      "Market run Saturday morning. It's the most honest version of me.",
+      "Come taste the new broth and be unkind if it needs it.",
+    ],
+  },
+];
+
+export const INTEREST_CHOICES = [
+  "Coffee",
+  "Walks",
+  "Music",
+  "Cooking",
+  "Football",
+  "Film",
+  "Plants",
+  "Books",
+  "Art",
+  "Hiking",
+  "Design",
+  "Markets",
+];
+
+export function getProfile(id: string) {
+  return PROFILES.find((profile) => profile.id === id);
+}
