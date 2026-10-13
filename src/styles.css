@@ -63,6 +63,8 @@
 
 .scroller {
   overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
 }
 
 @keyframes phone-flash {
@@ -243,7 +245,6 @@
   }
 
   .flame-pulse,
-  .spin,
   .bar-slide {
     animation: none;
   }

@@ -224,6 +224,7 @@ async function applyDecision(sql: Sql, id: number, action: Action) {
   }>`select id, user_id, kind, detail, status, telegram_message_id, desk from admin_events where id = ${id}`;
   const event = events[0];
   if (!event) return "Unknown request";
+  if (event.status !== "pending") return "Already handled";
 
   if (action === "block") {
     await sql`

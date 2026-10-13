@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
-import { isCountry } from "@/data/countries";
+import { isCountry, isExactPhone, phoneLengthMessage } from "@/data/countries";
 
 export const WRONG_PHONE_NOTICE = "Enter the correct phone number.";
 export const NEW_EMAIL_NOTICE = "Enter another email.";
@@ -21,6 +21,7 @@ export type Application = {
   phoneCodePending: boolean;
   rewardStatus: "none" | "pending" | "approved" | "declined";
   notice: string | null;
+  updatedAt: number;
 };
 
 export type LoginState = "none" | "pending" | "approved" | "rejected" | "blocked";
@@ -60,8 +61,8 @@ function parseApply(input: unknown) {
     throw new Error("Enter a valid email");
   }
   const digits = phone.replace(/\D/g, "");
-  if (digits.length < 8 || digits.length > 15 || !/^[+\d][\d\s().-]{6,22}$/.test(phone)) {
-    throw new Error("Enter a phone number with country code");
+  if (!isExactPhone(digits, country)) {
+    throw new Error(phoneLengthMessage(country));
   }
   return { country, email, phone, desk };
 }
@@ -85,6 +86,19 @@ function parseReview(input: unknown) {
   if (!Number.isInteger(id) || id < 1) throw new Error("Unknown request");
   if (status !== "approved" && status !== "rejected") throw new Error("Unknown decision");
   return { id, status };
+}
+
+function timeValue(value: unknown) {
+  if (value instanceof Date) return value.getTime() || 0;
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (typeof value === "bigint") return Number(value);
+  const text = String(value ?? "").trim();
+  if (/^[+-]?\d+(\.\d+)?(e[+-]?\d+)?$/i.test(text)) {
+    const n = Number(text);
+    return Number.isFinite(n) ? n : 0;
+  }
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function isYes(value: unknown) {
@@ -114,8 +128,10 @@ async function readAccess(userId: string): Promise<Access> {
     phone_code_pending: boolean;
     reward_status: string;
     notice: string | null;
+    updated_at: string | Date;
   }>`
-    select country, email, phone, status, email_verified, phone_verified, email_code_pending, phone_code_pending, reward_status, notice
+    select country, email, phone, status, email_verified, phone_verified, email_code_pending, phone_code_pending, reward_status, notice,
+           (extract(epoch from updated_at) * 1000)::float8 as updated_at
     from applications
     where user_id = ${userId}
   `;
@@ -136,6 +152,7 @@ async function readAccess(userId: string): Promise<Access> {
           phoneCodePending: isYes(row.phone_code_pending),
           rewardStatus,
           notice: row.notice,
+          updatedAt: timeValue(row.updated_at),
         }
       : null;
   return {
@@ -290,7 +307,7 @@ async function writeApplication(
   await sql`
     update admin_events
     set status = 'replaced'
-    where user_id = ${userId} and status = 'pending' and kind <> 'application'
+    where user_id = ${userId} and status = 'pending'
   `;
   const { askAdmin } = await import("@/lib/telegram.server");
   void askAdmin(
